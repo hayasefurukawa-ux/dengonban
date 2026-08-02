@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Station Board Posts
+    match /posts/{postId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Member Profiles
+    match /profiles/{profileId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Admin Notices
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+  }
+}

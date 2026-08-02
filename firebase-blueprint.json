@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "posts": {
+      "title": "Board Post",
+      "description": "Station chalkboard posts made by users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User identifier" },
+        "userEmail": { "type": "string", "description": "User email or identifier" },
+        "userAvatar": { "type": "string", "description": "User avatar image URL" },
+        "postName": { "type": "string", "description": "Display name of the author" },
+        "content": { "type": "string", "description": "Message content on the chalkboard" },
+        "chalkColor": { "type": "string", "description": "Chalk color chosen for message" },
+        "createdAt": { "type": "string", "description": "Formatted time string (e.g. 17:35 筆)" },
+        "timestamp": { "type": "number", "description": "Unix timestamp in milliseconds" }
+      },
+      "required": ["userId", "postName", "content", "chalkColor", "timestamp"]
+    },
+    "profiles": {
+      "title": "Member Profile",
+      "description": "Substack profile and self-introduction for station members",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User identifier" },
+        "userEmail": { "type": "string", "description": "User email address" },
+        "userAvatar": { "type": "string", "description": "Avatar URL" },
+        "postName": { "type": "string", "description": "Display author name" },
+        "googleName": { "type": "string", "description": "Google display name" },
+        "substackUrl": { "type": "string", "description": "Substack newsletter URL" },
+        "bio": { "type": "string", "description": "Self introduction bio" },
+        "strengths": { "type": "string", "description": "Member strengths" },
+        "weaknesses": { "type": "string", "description": "Member weaknesses" },
+        "updatedAt": { "type": "string", "description": "Formatted update date" }
+      },
+      "required": ["userId", "postName"]
+    },
+    "notices": {
+      "title": "Station Admin Notice",
+      "description": "Important announcements posted by station master",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string", "description": "Notice text" },
+        "updatedAt": { "type": "string", "description": "Updated date string" },
+        "updatedBy": { "type": "string", "description": "Author or admin title" }
+      },
+      "required": ["content", "updatedAt"]
+    }
+  }
+}

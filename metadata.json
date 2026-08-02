@@ -1,0 +1,6 @@
+{
+  "name": "ゆっくり駅伝言板",
+  "description": "「ゆっくり駅伝言板」。最大20件表示、1人最大2件制限、参加者自己紹介ボード・Substack連携付きの黒板伝言板アプリ。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
