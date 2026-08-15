@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { Clock, Shield, LogIn, Edit2, Train, Volume2, VolumeX } from 'lucide-react';
+import { Clock, Shield, LogIn, LogOut, Edit2, Train } from 'lucide-react';
 
 interface StationHeaderProps {
   user: UserProfile | null;
   onOpenAuthModal: () => void;
+  onLogout: () => void;
   onOpenEditProfileModal: () => void;
   isAdmin: boolean;
   onToggleAdmin: () => void;
@@ -16,6 +17,7 @@ interface StationHeaderProps {
 export const StationHeader: React.FC<StationHeaderProps> = ({
   user,
   onOpenAuthModal,
+  onLogout,
   onOpenEditProfileModal,
   isAdmin,
   onToggleAdmin,
@@ -53,7 +55,6 @@ export const StationHeader: React.FC<StationHeaderProps> = ({
 
   return (
     <header className="w-full max-w-5xl mx-auto mb-6">
-      {/* Top Banner & Control Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-stone-900 border-b border-stone-800 pb-3 px-2">
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-stone-800 text-amber-400 text-xs font-station-digital tracking-widest border border-amber-500/30">
@@ -62,12 +63,18 @@ export const StationHeader: React.FC<StationHeaderProps> = ({
           </span>
         </div>
 
-        {/* User Status Control */}
         <div className="flex items-center gap-2">
           {user ? (
             <div className="flex items-center gap-2 bg-stone-800/90 border border-stone-700 rounded-lg px-3 py-1.5 text-xs text-stone-200">
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt=""
+                  className="w-5 h-5 rounded-full object-cover border border-stone-600"
+                />
+              ) : null}
               <span className="font-bold text-amber-300 flex items-center gap-1">
-                投稿名: {user.postName || '（未設定）'}
+                {user.postName || user.googleName || '（未設定）'}
               </span>
               <button
                 onClick={onOpenEditProfileModal}
@@ -77,6 +84,14 @@ export const StationHeader: React.FC<StationHeaderProps> = ({
                 <Edit2 className="w-3.5 h-3.5 text-amber-400" />
                 <span>変更</span>
               </button>
+              <button
+                onClick={onLogout}
+                title="ログアウト"
+                className="p-1 hover:bg-stone-700 rounded text-stone-400 hover:text-rose-300 transition-colors flex items-center gap-1 text-[11px]"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>ログアウト</span>
+              </button>
             </div>
           ) : (
             <button
@@ -84,11 +99,10 @@ export const StationHeader: React.FC<StationHeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs rounded-lg shadow-sm transition-all border border-amber-400/30"
             >
               <LogIn className="w-3.5 h-3.5" />
-              ログイン
+              Googleログイン
             </button>
           )}
 
-          {/* Admin Switcher */}
           <button
             onClick={onToggleAdmin}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -104,7 +118,6 @@ export const StationHeader: React.FC<StationHeaderProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tags Bar (伝言板 ↔ 自己紹介ボード 切り替えタグ) */}
       <div className="mt-3 bg-stone-900 border-2 border-emerald-700/80 rounded-xl p-3 shadow-lg flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button

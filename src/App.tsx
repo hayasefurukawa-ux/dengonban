@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { Post, AdminNotice, UserProfile, MemberProfile, ChalkColor } from './types';
 import { StationHeader } from './components/StationHeader';
 import { Chalkboard } from './components/Chalkboard';
@@ -15,18 +16,16 @@ import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { EditProfileModal } from './components/EditProfileModal';
 import { AdminNoticeModal } from './components/AdminNoticeModal';
 import { Info, HelpCircle } from 'lucide-react';
-import { db } from './lib/firebase';
+import { auth, db } from './lib/firebase';
+import { authHeaders } from './lib/auth';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 
-
-const LOCAL_STORAGE_USER_KEY = 'station_board_user_v1';
 const LOCAL_STORAGE_STATION_KEY = 'station_board_name_v1';
+const POST_NAME_STORAGE_PREFIX = 'station_board_postname_';
 
 export default function App() {
-  // Navigation Tab State
   const [activeTab, setActiveTab] = useState<'board' | 'profiles'>('board');
 
-  // Board Data State
   const [posts, setPosts] = useState<Post[]>([]);
   const [adminNotice, setAdminNotice] = useState<AdminNotice>({
     content: '【ゆっくり駅伝言板 管理人の一言】伝言板は皆様の温かい伝言で成り立っています。ごゆっくりどうぞ。',
@@ -38,39 +37,13 @@ export default function App() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [stationName, setStationName] = useState<string>('昭和中央駅');
 
-  // Member Profiles State
   const [memberProfiles, setMemberProfiles] = useState<MemberProfile[]>([]);
   const [selectedProfile, setSelectedProfile] = useState<MemberProfile | null>(null);
 
-  // User & Auth State
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Clean up legacy hardcoded 'タカシ' if present
-        if (parsed.postName === 'タカシ' && parsed.email === 'dailymemo@gmail.com' && !parsed.bio) {
-          parsed.postName = '';
-        }
-        return parsed;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    // Default logged in Google Account for instant playability
-    return {
-      id: 'user-dailymemo@gmail.com',
-      email: 'dailymemo@gmail.com',
-      googleName: 'Googleユーザー',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      postName: '',
-      isAdmin: false,
-    };
-  });
-
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
-  // Modals Control State
   const [isPostModalOpen, setIsPostModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState<boolean>(false);
@@ -79,7 +52,48 @@ export default function App() {
   const [isProfileEditModalOpen, setIsProfileEditModalOpen] = useState<boolean>(false);
   const [showRulesInfo, setShowRulesInfo] = useState<boolean>(false);
 
-  // Fetch Member Profiles
+  useEffect(() => {
+    try {
+      localStorage.removeItem('station_board_user_v1');
+    } catch {
+      /* ignore */
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        const savedPostName =
+          localStorage.getItem(`${POST_NAME_STORAGE_PREFIX}${fbUser.uid}`) || '';
+        setCurrentUser({
+          id: fbUser.uid,
+          email: fbUser.email || '',
+          googleName: fbUser.displayName || 'Googleユーザー',
+          avatar:
+            fbUser.photoURL ||
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          postName: savedPostName || fbUser.displayName || '',
+          isAdmin: false,
+        });
+      } else {
+        setCurrentUser(null);
+      }
+      setAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser?.id && currentUser.postName) {
+      try {
+        localStorage.setItem(
+          `${POST_NAME_STORAGE_PREFIX}${currentUser.id}`,
+          currentUser.postName
+        );
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [currentUser]);
+
   const fetchProfiles = useCallback(async () => {
     try {
       const res = await fetch('/api/profiles');
@@ -92,7 +106,6 @@ export default function App() {
     }
   }, []);
 
-  // Load Saved Station Name
   useEffect(() => {
     try {
       const savedName = localStorage.getItem(LOCAL_STORAGE_STATION_KEY);
@@ -102,18 +115,6 @@ export default function App() {
     }
   }, []);
 
-  // Save User to LocalStorage
-  useEffect(() => {
-    if (currentUser) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(currentUser));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, [currentUser]);
-
-  // Fetch Board Data from API
   const fetchBoardData = useCallback(async () => {
     try {
       const response = await fetch('/api/board');
@@ -124,8 +125,8 @@ export default function App() {
         if (data.maxBoardLimit) setMaxBoardLimit(data.maxBoardLimit);
         if (data.maxUserLimit) setMaxUserLimit(data.maxUserLimit);
       }
-    } catch (err) {
-      console.error('Failed to fetch board data:', err);
+    } catch (e) {
+      console.error('Failed to fetch board:', e);
     } finally {
       setIsLoading(false);
     }
@@ -135,49 +136,56 @@ export default function App() {
     fetchBoardData();
     fetchProfiles();
 
-    // Subscribe to real-time Firestore updates
     let unsubscribePosts: (() => void) | null = null;
     let unsubscribeProfiles: (() => void) | null = null;
     let unsubscribeNotice: (() => void) | null = null;
 
     try {
-      // 1. Real-time Posts
       const postsQuery = query(collection(db, 'posts'), orderBy('timestamp', 'desc'), limit(20));
-      unsubscribePosts = onSnapshot(postsQuery, (snapshot) => {
-        const livePosts: Post[] = [];
-        snapshot.forEach((doc) => {
-          livePosts.push(doc.data() as Post);
-        });
-        setPosts(livePosts);
-        setIsLoading(false);
-      }, (err) => {
-        console.error('Firestore posts snapshot error:', err);
-      });
-
-      // 2. Real-time Profiles
-      unsubscribeProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
-        const liveProfiles: MemberProfile[] = [];
-        snapshot.forEach((doc) => {
-          liveProfiles.push(doc.data() as MemberProfile);
-        });
-        setMemberProfiles(liveProfiles);
-      }, (err) => {
-        console.error('Firestore profiles snapshot error:', err);
-      });
-
-      // 3. Real-time Admin Notice
-      unsubscribeNotice = onSnapshot(doc(db, 'notices', 'station_notice'), (docSnap) => {
-        if (docSnap.exists()) {
-          setAdminNotice(docSnap.data() as AdminNotice);
+      unsubscribePosts = onSnapshot(
+        postsQuery,
+        (snapshot) => {
+          const livePosts: Post[] = [];
+          snapshot.forEach((d) => {
+            livePosts.push(d.data() as Post);
+          });
+          setPosts(livePosts);
+          setIsLoading(false);
+        },
+        (err) => {
+          console.error('Firestore posts snapshot error:', err);
         }
-      }, (err) => {
-        console.error('Firestore notice snapshot error:', err);
-      });
+      );
+
+      unsubscribeProfiles = onSnapshot(
+        collection(db, 'profiles'),
+        (snapshot) => {
+          const liveProfiles: MemberProfile[] = [];
+          snapshot.forEach((d) => {
+            liveProfiles.push(d.data() as MemberProfile);
+          });
+          setMemberProfiles(liveProfiles);
+        },
+        (err) => {
+          console.error('Firestore profiles snapshot error:', err);
+        }
+      );
+
+      unsubscribeNotice = onSnapshot(
+        doc(db, 'notices', 'station_notice'),
+        (docSnap) => {
+          if (docSnap.exists()) {
+            setAdminNotice(docSnap.data() as AdminNotice);
+          }
+        },
+        (err) => {
+          console.error('Firestore notice snapshot error:', err);
+        }
+      );
     } catch (e) {
       console.error('Real-time subscription setup error:', e);
     }
 
-    // Fallback interval check every 10s
     const interval = setInterval(() => {
       fetchBoardData();
       fetchProfiles();
@@ -191,14 +199,27 @@ export default function App() {
     };
   }, [fetchBoardData, fetchProfiles]);
 
-  // Open Profile Modal by UserId (e.g. clicking name on chalkboard)
+  const requireLogin = () => {
+    setIsAuthModalOpen(true);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(null);
+      setIsAdmin(false);
+    } catch (e) {
+      console.error(e);
+      alert('ログアウトに失敗しました。');
+    }
+  };
+
   const handleOpenProfileByUserId = (userId: string) => {
     const profile = memberProfiles.find((p) => p.userId === userId);
     if (profile) {
       setSelectedProfile(profile);
       setIsProfileModalOpen(true);
     } else {
-      // Fallback: create temporary profile from post if not found in db
       const targetPost = posts.find((p) => p.userId === userId);
       if (targetPost) {
         setSelectedProfile({
@@ -217,7 +238,6 @@ export default function App() {
     }
   };
 
-  // Save Profile Handler (Update Substack, bio, strengths, weaknesses, postName)
   const handleSaveMemberProfile = async (updatedData: {
     postName: string;
     substackUrl: string;
@@ -229,10 +249,8 @@ export default function App() {
 
     const res = await fetch(`/api/profiles/${currentUser.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({
-        userId: currentUser.id,
-        userEmail: currentUser.email,
         userAvatar: currentUser.avatar,
         googleName: currentUser.googleName,
         postName: updatedData.postName,
@@ -248,57 +266,40 @@ export default function App() {
       throw new Error(result.error || 'プロフィールの保存に失敗しました。');
     }
 
-    // Update currentUser state and localStorage
-    const updatedUser: UserProfile = {
+    setCurrentUser({
       ...currentUser,
       postName: updatedData.postName,
       substackUrl: updatedData.substackUrl,
       bio: updatedData.bio,
       strengths: updatedData.strengths,
       weaknesses: updatedData.weaknesses,
-    };
-    setCurrentUser(updatedUser);
-    try {
-      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(updatedUser));
-    } catch (e) {
-      console.error(e);
-    }
+    });
 
     if (selectedProfile?.userId === currentUser.id && result.profile) {
       setSelectedProfile(result.profile);
     }
 
-    // Refresh data
     await fetchProfiles();
     await fetchBoardData();
   };
 
-  // Write Post Action
   const handleCreatePost = async (data: {
     postName: string;
     content: string;
     chalkColor: ChalkColor;
   }) => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      throw new Error('伝言を書くにはGoogleアカウントでのログインが必要です。');
+    }
 
-    // Update local postName if changed in form
     if (currentUser.postName !== data.postName) {
-      const updatedUser = { ...currentUser, postName: data.postName };
-      setCurrentUser(updatedUser);
-      try {
-        localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(updatedUser));
-      } catch (e) {
-        console.error(e);
-      }
+      setCurrentUser({ ...currentUser, postName: data.postName });
     }
 
     const res = await fetch('/api/posts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({
-        userId: currentUser.id,
-        userEmail: currentUser.email,
-        userAvatar: currentUser.avatar,
         postName: data.postName,
         content: data.content,
         chalkColor: data.chalkColor,
@@ -310,25 +311,23 @@ export default function App() {
       throw new Error(result.error || '投稿に失敗しました。');
     }
 
-    // Refresh board and profiles immediately
     await fetchBoardData();
     await fetchProfiles();
   };
 
-  // Delete Post Action (黒板消し)
   const handleDeletePost = async (postId: string) => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      requireLogin();
+      return;
+    }
 
     if (!confirm('この伝言を黒板消しで消去しますか？')) return;
 
     try {
       const res = await fetch(`/api/posts/${postId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser.id,
-          isAdmin,
-        }),
+        headers: await authHeaders(),
+        body: JSON.stringify({ isAdmin }),
       });
 
       if (res.ok) {
@@ -343,11 +342,15 @@ export default function App() {
     }
   };
 
-  // Save Admin Notice Action
   const handleSaveAdminNotice = async (newNotice: string, updatedBy: string) => {
+    if (!currentUser) {
+      requireLogin();
+      return;
+    }
+
     const res = await fetch('/api/admin-notice', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({
         content: newNotice,
         updatedBy,
@@ -358,11 +361,11 @@ export default function App() {
       const result = await res.json();
       setAdminNotice(result.adminNotice);
     } else {
-      alert('管理人の一言の更新に失敗しました。');
+      const result = await res.json().catch(() => ({}));
+      alert(result.error || '管理人の一言の更新に失敗しました。');
     }
   };
 
-  // User Profile Name Change
   const handleSaveProfileName = (newPostName: string) => {
     if (currentUser) {
       setCurrentUser({
@@ -372,27 +375,44 @@ export default function App() {
     }
   };
 
-  // Count active posts by current user
   const userActiveCount = currentUser
     ? posts.filter((p) => p.userId === currentUser.id).length
     : 0;
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-stone-950 text-amber-300 flex items-center justify-center font-chalk text-xl">
+        読み込み中...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col p-3 sm:p-6 select-none font-sans">
-      
-      {/* Header Section */}
       <StationHeader
         user={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onOpenEditProfileModal={() => setIsProfileEditModalOpen(true)}
+        onLogout={handleLogout}
+        onOpenEditProfileModal={() => {
+          if (!currentUser) {
+            requireLogin();
+            return;
+          }
+          setIsEditProfileModalOpen(true);
+        }}
         isAdmin={isAdmin}
         onToggleAdmin={() => setIsAdmin(!isAdmin)}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onOpenMyProfileEdit={() => setIsProfileEditModalOpen(true)}
+        onOpenMyProfileEdit={() => {
+          if (!currentUser) {
+            requireLogin();
+            return;
+          }
+          setIsProfileEditModalOpen(true);
+        }}
       />
 
-      {/* Main Content View Switch (伝言板 ↔ 自己紹介ボード) */}
       <main className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto">
         {activeTab === 'board' ? (
           isLoading ? (
@@ -406,8 +426,20 @@ export default function App() {
               currentUser={currentUser}
               isAdmin={isAdmin}
               profiles={memberProfiles}
-              onOpenPostModal={() => setIsPostModalOpen(true)}
-              onOpenAdminNoticeModal={() => setIsAdminNoticeModalOpen(true)}
+              onOpenPostModal={() => {
+                if (!currentUser) {
+                  requireLogin();
+                  return;
+                }
+                setIsPostModalOpen(true);
+              }}
+              onOpenAdminNoticeModal={() => {
+                if (!currentUser) {
+                  requireLogin();
+                  return;
+                }
+                setIsAdminNoticeModalOpen(true);
+              }}
               onDeletePost={handleDeletePost}
               onOpenProfileByUserId={handleOpenProfileByUserId}
               maxBoardLimit={maxBoardLimit}
@@ -432,13 +464,18 @@ export default function App() {
                 setSelectedProfile(profile);
                 setIsProfileModalOpen(true);
               }}
-              onOpenEditProfile={() => setIsProfileEditModalOpen(true)}
+              onOpenEditProfile={() => {
+                if (!currentUser) {
+                  requireLogin();
+                  return;
+                }
+                setIsProfileEditModalOpen(true);
+              }}
               onBackToMainBoard={() => setActiveTab('board')}
             />
           </div>
         )}
 
-        {/* Bottom Quick Help Bar */}
         <div className="w-full mt-6 flex items-center justify-between text-xs text-stone-400 border-t border-stone-800 pt-3 px-2">
           <button
             onClick={() => setShowRulesInfo(!showRulesInfo)}
@@ -453,7 +490,6 @@ export default function App() {
           </span>
         </div>
 
-        {/* Rules Guide Drawer */}
         {showRulesInfo && (
           <div className="w-full mt-3 bg-stone-900 border border-stone-800 rounded-xl p-4 text-xs space-y-2 text-stone-300 animate-fade-in">
             <div className="font-bold text-amber-300 text-sm mb-2 flex items-center gap-1.5 font-station-sign">
@@ -461,16 +497,26 @@ export default function App() {
               【伝言板 & 自己紹介ボードのご利用案内】
             </div>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 list-disc list-inside text-stone-300">
-              <li><strong className="text-white">表示上限:</strong> 黒板上に表示できる伝言は最大<span className="text-amber-300 font-bold">20件</span>です。</li>
-              <li><strong className="text-white">連続投稿制限:</strong> 1人（1アカウント）が同時に掲示できる伝言は最大<span className="text-amber-300 font-bold">2件</span>までです。</li>
-              <li><strong className="text-white">Substackへの移動:</strong> 伝言板やボード上の名前をクリックすると、その方のSubstack（サブスタック）TOPページへ直接移動できます。</li>
-              <li><strong className="text-white">自己紹介ボード:</strong> 上部タブ「👥 参加者 自己紹介ボード」から全員のプロフィール一覧がいつでも見られます。</li>
+              <li>
+                <strong className="text-white">ログイン:</strong> 伝言の書き込み・削除・自己紹介登録には
+                <span className="text-amber-300 font-bold">Googleログイン</span>が必要です。
+              </li>
+              <li>
+                <strong className="text-white">表示上限:</strong> 黒板上に表示できる伝言は最大
+                <span className="text-amber-300 font-bold">20件</span>です。
+              </li>
+              <li>
+                <strong className="text-white">連続投稿制限:</strong> 1人が同時に掲示できる伝言は最大
+                <span className="text-amber-300 font-bold">2件</span>までです。
+              </li>
+              <li>
+                <strong className="text-white">自己紹介ボード:</strong> 上部タブから参加者プロフィールを見られます。
+              </li>
             </ul>
           </div>
         )}
       </main>
 
-      {/* Modals */}
       <PostFormModal
         isOpen={isPostModalOpen}
         onClose={() => setIsPostModalOpen(false)}
@@ -507,7 +553,13 @@ export default function App() {
         profile={selectedProfile}
         userPosts={selectedProfile ? posts.filter((p) => p.userId === selectedProfile.userId) : []}
         isOwnProfile={currentUser?.id === selectedProfile?.userId}
-        onOpenEditProfile={() => setIsProfileEditModalOpen(true)}
+        onOpenEditProfile={() => {
+          if (!currentUser) {
+            requireLogin();
+            return;
+          }
+          setIsProfileEditModalOpen(true);
+        }}
       />
 
       {currentUser && (

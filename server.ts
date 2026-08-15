@@ -61,18 +61,84 @@ const MAX_BOARD_LIMIT = 20;
 // Maximum posts per user: 2 posts
 const MAX_USER_LIMIT = 2;
 
+interface AuthUser {
+  uid: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+}
+
+let firebaseApiKey = "";
+
 // Initialize Firebase Firestore
 let db: any = null;
 try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
   if (fs.existsSync(configPath)) {
     const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    firebaseApiKey = firebaseConfig.apiKey || "";
     const fbApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     db = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId || "(default)");
     console.log("[Firebase] Firestore connected successfully.");
   }
 } catch (e) {
   console.error("[Firebase] Firestore initialization failed, fallback to memory:", e);
+}
+
+/** Firebase ID トークンを検証してユーザー情報を返す */
+async function verifyIdToken(idToken: string): Promise<AuthUser | null> {
+  if (!firebaseApiKey || !idToken) return null;
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      users?: Array<{
+        localId: string;
+        email?: string;
+        displayName?: string;
+        photoUrl?: string;
+      }>;
+    };
+    const user = data.users?.[0];
+    if (!user?.localId) return null;
+    return {
+      uid: user.localId,
+      email: user.email,
+      name: user.displayName,
+      picture: user.photoUrl,
+    };
+  } catch (e) {
+    console.error("[Auth] Token verification failed:", e);
+    return null;
+  }
+}
+
+/** 書き込み系 API 用の認証ミドルウェア */
+async function requireAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Googleログインが必要です。" });
+    return;
+  }
+  const token = header.slice(7);
+  const authUser = await verifyIdToken(token);
+  if (!authUser) {
+    res.status(401).json({ error: "認証に失敗しました。再度ログインしてください。" });
+    return;
+  }
+  (req as express.Request & { authUser: AuthUser }).authUser = authUser;
+  next();
 }
 
 // In-Memory fallback storage
@@ -155,11 +221,17 @@ app.get("/api/board", async (req, res) => {
   });
 });
 
-// 2. Create New Post
-app.post("/api/posts", async (req, res) => {
-  const { userId, userEmail, userAvatar, postName, content, chalkColor } = req.body;
+// 2. Create New Post (要 Google ログイン)
+app.post("/api/posts", requireAuth, async (req, res) => {
+  const authUser = (req as express.Request & { authUser: AuthUser }).authUser;
+  const { postName, content, chalkColor } = req.body;
+  const userId = authUser.uid;
+  const userEmail = authUser.email || userId;
+  const userAvatar =
+    authUser.picture ||
+    "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80";
 
-  if (!userId || !content || typeof content !== "string" || !content.trim()) {
+  if (!content || typeof content !== "string" || !content.trim()) {
     res.status(400).json({ error: "伝言内容を入力してください。" });
     return;
   }
@@ -185,9 +257,9 @@ app.post("/api/posts", async (req, res) => {
   const newPost: Post = {
     id: postId,
     userId,
-    userEmail: userEmail || userId,
-    userAvatar: userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80",
-    postName: postName?.trim() || "名無し駅員",
+    userEmail,
+    userAvatar,
+    postName: postName?.trim() || authUser.name || "名無し駅員",
     content: cleanContent,
     chalkColor: chalkColor || "white",
     createdAt: formatStationTime(),
@@ -215,10 +287,10 @@ app.post("/api/posts", async (req, res) => {
   if (!currentProfiles[userId]) {
     updatedProfile = {
       userId,
-      userEmail: userEmail || userId,
-      userAvatar: userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80",
-      postName: postName?.trim() || "名無し",
-      googleName: "",
+      userEmail,
+      userAvatar,
+      postName: postName?.trim() || authUser.name || "名無し",
+      googleName: authUser.name || "",
       substackUrl: "",
       bio: "",
       strengths: "",
@@ -229,6 +301,8 @@ app.post("/api/posts", async (req, res) => {
     updatedProfile = {
       ...currentProfiles[userId],
       postName: postName?.trim() || currentProfiles[userId].postName || "名無し",
+      userAvatar: userAvatar || currentProfiles[userId].userAvatar,
+      googleName: authUser.name || currentProfiles[userId].googleName || "",
     };
   }
   profiles[userId] = updatedProfile;
@@ -251,10 +325,12 @@ app.post("/api/posts", async (req, res) => {
   });
 });
 
-// 3. Delete Post
-app.delete("/api/posts/:id", async (req, res) => {
+// 3. Delete Post (要 Google ログイン)
+app.delete("/api/posts/:id", requireAuth, async (req, res) => {
+  const authUser = (req as express.Request & { authUser: AuthUser }).authUser;
   const { id } = req.params;
-  const { userId, isAdmin } = req.body || {};
+  const { isAdmin } = req.body || {};
+  const userId = authUser.uid;
 
   const currentPosts = await loadPosts();
   const targetPost = currentPosts.find((p) => p.id === id);
@@ -286,8 +362,8 @@ app.delete("/api/posts/:id", async (req, res) => {
   });
 });
 
-// 4. Update Manager/Admin Corner
-app.put("/api/admin-notice", async (req, res) => {
+// 4. Update Manager/Admin Corner (要 Google ログイン)
+app.put("/api/admin-notice", requireAuth, async (req, res) => {
   const { content, updatedBy } = req.body;
 
   if (!content || typeof content !== "string" || !content.trim()) {
@@ -336,13 +412,19 @@ app.get("/api/profiles/:userId", async (req, res) => {
   res.json({ profile });
 });
 
-// 7. Create/Update Member Profile (自己紹介登録・更新)
-app.put("/api/profiles/:userId", async (req, res) => {
+// 7. Create/Update Member Profile (要 Google ログイン)
+app.put("/api/profiles/:userId", requireAuth, async (req, res) => {
+  const authUser = (req as express.Request & { authUser: AuthUser }).authUser;
   const { userId } = req.params;
-  const { userEmail, userAvatar, postName, googleName, substackUrl, bio, strengths, weaknesses } = req.body;
+  const { userAvatar, postName, googleName, substackUrl, bio, strengths, weaknesses } = req.body;
 
   if (!userId) {
     res.status(400).json({ error: "ユーザーIDが必要です。" });
+    return;
+  }
+
+  if (userId !== authUser.uid) {
+    res.status(403).json({ error: "自分のプロフィールのみ編集できます。" });
     return;
   }
 
@@ -351,10 +433,10 @@ app.put("/api/profiles/:userId", async (req, res) => {
 
   const updatedProfile: MemberProfile = {
     userId,
-    userEmail: userEmail || existing.userEmail || userId,
-    userAvatar: userAvatar || existing.userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80",
-    postName: postName?.trim() || existing.postName || "名無し",
-    googleName: googleName || existing.googleName || "",
+    userEmail: authUser.email || existing.userEmail || userId,
+    userAvatar: userAvatar || authUser.picture || existing.userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80",
+    postName: postName?.trim() || existing.postName || authUser.name || "名無し",
+    googleName: googleName || authUser.name || existing.googleName || "",
     substackUrl: substackUrl?.trim() || existing.substackUrl || "",
     bio: bio?.trim() || "",
     strengths: strengths?.trim() || "",
