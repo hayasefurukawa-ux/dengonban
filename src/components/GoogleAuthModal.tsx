@@ -46,15 +46,21 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       onClose();
     } catch (err: unknown) {
       console.error(err);
-      const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: string }).code) : '';
+      const code =
+        typeof err === 'object' && err && 'code' in err
+          ? String((err as { code: string }).code)
+          : '';
+      const host = window.location.hostname;
       if (code === 'auth/popup-closed-by-user') {
         setErrorMessage('ログインがキャンセルされました。');
       } else if (code === 'auth/unauthorized-domain') {
         setErrorMessage(
-          'このドメインは Firebase で許可されていません。Firebase Console の「承認済みドメイン」に追加してください。'
+          `ドメイン未承認です（${host}）。Firebase Console → Authentication → Settings → Authorized domains に「${host}」を追加してください。※順番（12番目など）は関係ありません。`
         );
       } else {
-        setErrorMessage('Googleログインに失敗しました。もう一度お試しください。');
+        setErrorMessage(
+          `Googleログインに失敗しました${code ? `（${code}）` : ''}。もう一度お試しください。`
+        );
       }
     } finally {
       setIsLoading(false);
