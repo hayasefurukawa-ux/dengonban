@@ -1,15 +1,13 @@
 import React from 'react';
-import { Post, AdminNotice, UserProfile, MemberProfile, ChalkColor } from '../types';
-import { PenTool, Eraser, ExternalLink, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Post, UserProfile, MemberProfile, ChalkColor } from '../types';
+import { PenTool, Eraser, ExternalLink, CheckCircle2 } from 'lucide-react';
 
 interface ChalkboardProps {
   posts: Post[];
-  adminNotice: AdminNotice;
   currentUser: UserProfile | null;
   isAdmin: boolean;
   profiles?: MemberProfile[];
   onOpenPostModal: () => void;
-  onOpenAdminNoticeModal: () => void;
   onDeletePost: (postId: string) => void;
   onOpenProfileByUserId: (userId: string) => void;
   maxBoardLimit: number; // 20
@@ -18,12 +16,10 @@ interface ChalkboardProps {
 
 export const Chalkboard: React.FC<ChalkboardProps> = ({
   posts,
-  adminNotice,
   currentUser,
   isAdmin,
   profiles = [],
   onOpenPostModal,
-  onOpenAdminNoticeModal,
   onDeletePost,
   onOpenProfileByUserId,
   maxBoardLimit = 20,
@@ -121,42 +117,7 @@ export const Chalkboard: React.FC<ChalkboardProps> = ({
               </div>
             </div>
 
-            {/* ========================================= */}
-            {/* 管理人の一言コーナー (DEDICATED ADMIN CORNER) */}
-            {/* ========================================= */}
-            <div className="mb-6 bg-emerald-950/60 border-2 border-emerald-500/50 rounded-lg p-3.5 relative shadow-inner">
-              <div className="flex items-center justify-between gap-2 border-b border-emerald-500/30 pb-2 mb-2">
-                <div className="flex items-center gap-2 text-amber-300 font-bold text-sm tracking-wide">
-                  <ShieldAlert className="w-4 h-4 text-amber-400 animate-bounce" />
-                  <span className="font-station-sign">【管理人の一言】</span>
-                  <span className="text-[10px] bg-emerald-900 text-emerald-200 px-2 py-0.5 rounded border border-emerald-700 font-mono">
-                    管理人（駅長）専用投稿枠
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-emerald-300/80 font-mono">
-                    {adminNotice.updatedBy} ({adminNotice.updatedAt})
-                  </span>
-                  {isAdmin && (
-                    <button
-                      onClick={onOpenAdminNoticeModal}
-                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs rounded transition-colors"
-                    >
-                      一言を更新
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="font-chalk text-base sm:text-lg chalk-text-yellow pl-2 border-l-2 border-amber-400/50 py-0.5">
-                {adminNotice.content}
-              </div>
-            </div>
-
-            {/* ========================================= */}
-            {/* 伝言スロット 7枠 (7 MAIN SLOTS DISPLAY)    */}
-            {/* ========================================= */}
+            {/* 伝言スロット */}
             <div className="space-y-3">
               {slots.map((post, index) => {
                 const slotNumber = index + 1;
@@ -250,7 +211,7 @@ export const Chalkboard: React.FC<ChalkboardProps> = ({
           {/* Footer Notice & Board Rules */}
           <div className="mt-6 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between text-xs text-stone-400 font-mono gap-2">
             <div>
-              <span>※駅の伝言板ルール: 掲示最大7件 / 1人最大3件まで</span>
+              <span>※駅の伝言板ルール: 掲示最大{maxBoardLimit}件 / 1人最大{maxUserLimit}件まで</span>
             </div>
             <div className="flex items-center gap-2 text-stone-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />

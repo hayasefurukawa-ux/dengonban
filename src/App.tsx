@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Post, AdminNotice, UserProfile, MemberProfile, ChalkColor } from './types';
+import { Post, UserProfile, MemberProfile, ChalkColor } from './types';
 import { StationHeader } from './components/StationHeader';
 import { Chalkboard } from './components/Chalkboard';
 import { ProfileBoard } from './components/ProfileBoard';
@@ -14,11 +14,10 @@ import { ProfileEditModal } from './components/ProfileEditModal';
 import { PostFormModal } from './components/PostFormModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { EditProfileModal } from './components/EditProfileModal';
-import { AdminNoticeModal } from './components/AdminNoticeModal';
 import { Info, HelpCircle } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { authHeaders } from './lib/auth';
-import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 
 const LOCAL_STORAGE_STATION_KEY = 'station_board_name_v1';
 const POST_NAME_STORAGE_PREFIX = 'station_board_postname_';
@@ -27,11 +26,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'board' | 'profiles'>('board');
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [adminNotice, setAdminNotice] = useState<AdminNotice>({
-    content: '【ゆっくり駅伝言板 管理人の一言】伝言板は皆様の温かい伝言で成り立っています。ごゆっくりどうぞ。',
-    updatedAt: '',
-    updatedBy: 'ゆっくり駅伝言板 管理人',
-  });
   const [maxBoardLimit, setMaxBoardLimit] = useState<number>(20);
   const [maxUserLimit, setMaxUserLimit] = useState<number>(2);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -47,7 +41,6 @@ export default function App() {
   const [isPostModalOpen, setIsPostModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState<boolean>(false);
-  const [isAdminNoticeModalOpen, setIsAdminNoticeModalOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isProfileEditModalOpen, setIsProfileEditModalOpen] = useState<boolean>(false);
   const [showRulesInfo, setShowRulesInfo] = useState<boolean>(false);
@@ -121,7 +114,6 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         setPosts(data.posts || []);
-        if (data.adminNotice) setAdminNotice(data.adminNotice);
         if (data.maxBoardLimit) setMaxBoardLimit(data.maxBoardLimit);
         if (data.maxUserLimit) setMaxUserLimit(data.maxUserLimit);
       }
@@ -138,7 +130,6 @@ export default function App() {
 
     let unsubscribePosts: (() => void) | null = null;
     let unsubscribeProfiles: (() => void) | null = null;
-    let unsubscribeNotice: (() => void) | null = null;
 
     try {
       const postsQuery = query(collection(db, 'posts'), orderBy('timestamp', 'desc'), limit(20));
@@ -170,18 +161,6 @@ export default function App() {
           console.error('Firestore profiles snapshot error:', err);
         }
       );
-
-      unsubscribeNotice = onSnapshot(
-        doc(db, 'notices', 'station_notice'),
-        (docSnap) => {
-          if (docSnap.exists()) {
-            setAdminNotice(docSnap.data() as AdminNotice);
-          }
-        },
-        (err) => {
-          console.error('Firestore notice snapshot error:', err);
-        }
-      );
     } catch (e) {
       console.error('Real-time subscription setup error:', e);
     }
@@ -194,7 +173,6 @@ export default function App() {
     return () => {
       if (unsubscribePosts) unsubscribePosts();
       if (unsubscribeProfiles) unsubscribeProfiles();
-      if (unsubscribeNotice) unsubscribeNotice();
       clearInterval(interval);
     };
   }, [fetchBoardData, fetchProfiles]);
@@ -284,7 +262,6 @@ export default function App() {
   };
 
   const handleCreatePost = async (data: {
-    postName: string;
     content: string;
     chalkColor: ChalkColor;
   }) => {
@@ -292,15 +269,22 @@ export default function App() {
       throw new Error('伝言を書くにはGoogleアカウントでのログインが必要です。');
     }
 
-    if (currentUser.postName !== data.postName) {
-      setCurrentUser({ ...currentUser, postName: data.postName });
+    const profile = memberProfiles.find((p) => p.userId === currentUser.id);
+    const postName =
+      profile?.postName?.trim() ||
+      currentUser.postName?.trim() ||
+      currentUser.googleName?.trim() ||
+      '';
+
+    if (!postName) {
+      throw new Error('表示名がありません。自己紹介または投稿名を先に登録してください。');
     }
 
     const res = await fetch('/api/posts', {
       method: 'POST',
       headers: await authHeaders(),
       body: JSON.stringify({
-        postName: data.postName,
+        postName,
         content: data.content,
         chalkColor: data.chalkColor,
       }),
@@ -342,30 +326,6 @@ export default function App() {
     }
   };
 
-  const handleSaveAdminNotice = async (newNotice: string, updatedBy: string) => {
-    if (!currentUser) {
-      requireLogin();
-      return;
-    }
-
-    const res = await fetch('/api/admin-notice', {
-      method: 'PUT',
-      headers: await authHeaders(),
-      body: JSON.stringify({
-        content: newNotice,
-        updatedBy,
-      }),
-    });
-
-    if (res.ok) {
-      const result = await res.json();
-      setAdminNotice(result.adminNotice);
-    } else {
-      const result = await res.json().catch(() => ({}));
-      alert(result.error || '管理人の一言の更新に失敗しました。');
-    }
-  };
-
   const handleSaveProfileName = (newPostName: string) => {
     if (currentUser) {
       setCurrentUser({
@@ -378,6 +338,13 @@ export default function App() {
   const userActiveCount = currentUser
     ? posts.filter((p) => p.userId === currentUser.id).length
     : 0;
+
+  const currentDisplayName = currentUser
+    ? memberProfiles.find((p) => p.userId === currentUser.id)?.postName?.trim() ||
+      currentUser.postName?.trim() ||
+      currentUser.googleName?.trim() ||
+      ''
+    : '';
 
   if (!authReady) {
     return (
@@ -422,7 +389,6 @@ export default function App() {
           ) : (
             <Chalkboard
               posts={posts}
-              adminNotice={adminNotice}
               currentUser={currentUser}
               isAdmin={isAdmin}
               profiles={memberProfiles}
@@ -432,13 +398,6 @@ export default function App() {
                   return;
                 }
                 setIsPostModalOpen(true);
-              }}
-              onOpenAdminNoticeModal={() => {
-                if (!currentUser) {
-                  requireLogin();
-                  return;
-                }
-                setIsAdminNoticeModalOpen(true);
               }}
               onDeletePost={handleDeletePost}
               onOpenProfileByUserId={handleOpenProfileByUserId}
@@ -522,6 +481,7 @@ export default function App() {
         onClose={() => setIsPostModalOpen(false)}
         onSubmit={handleCreatePost}
         user={currentUser}
+        displayName={currentDisplayName}
         userActiveCount={userActiveCount}
         maxUserLimit={maxUserLimit}
       />
@@ -538,13 +498,6 @@ export default function App() {
         onClose={() => setIsEditProfileModalOpen(false)}
         user={currentUser}
         onSaveProfile={handleSaveProfileName}
-      />
-
-      <AdminNoticeModal
-        isOpen={isAdminNoticeModalOpen}
-        onClose={() => setIsAdminNoticeModalOpen(false)}
-        adminNotice={adminNotice}
-        onSaveAdminNotice={handleSaveAdminNotice}
       />
 
       <ProfileModal

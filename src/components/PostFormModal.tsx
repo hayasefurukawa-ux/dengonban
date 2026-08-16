@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, ChalkColor } from '../types';
 import { X, PenTool, AlertTriangle, Check, UserCheck, Palette } from 'lucide-react';
 
 interface PostFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { postName: string; content: string; chalkColor: ChalkColor }) => Promise<void>;
+  onSubmit: (data: { content: string; chalkColor: ChalkColor }) => Promise<void>;
   user: UserProfile | null;
+  displayName: string;
   userActiveCount: number;
-  maxUserLimit: number; // 3
+  maxUserLimit: number;
 }
 
 export const PostFormModal: React.FC<PostFormModalProps> = ({
@@ -16,14 +17,22 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
   onClose,
   onSubmit,
   user,
+  displayName,
   userActiveCount,
   maxUserLimit = 2,
 }) => {
-  const [postName, setPostName] = useState<string>(user?.postName || '');
   const [content, setContent] = useState<string>('');
   const [chalkColor, setChalkColor] = useState<ChalkColor>('white');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setContent('');
+      setChalkColor('white');
+      setErrorMessage('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -38,8 +47,8 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
       return;
     }
 
-    if (!postName.trim()) {
-      setErrorMessage('投稿名（名前）を入力してください。');
+    if (!displayName.trim()) {
+      setErrorMessage('表示名がありません。自己紹介または投稿名を先に登録してください。');
       return;
     }
 
@@ -49,21 +58,23 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
     }
 
     if (isLimitReached) {
-      setErrorMessage(`1人で一度に掲示できる伝言は最大${maxUserLimit}件までです。既存の伝言を削除してください。`);
+      setErrorMessage(
+        `1人で一度に掲示できる伝言は最大${maxUserLimit}件までです。既存の伝言を削除してください。`
+      );
       return;
     }
 
     try {
       setIsSubmitting(true);
       await onSubmit({
-        postName: postName.trim(),
         content: content.trim(),
         chalkColor,
       });
       setContent('');
       onClose();
-    } catch (err: any) {
-      setErrorMessage(err.message || '伝言の書き込みに失敗しました。');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '伝言の書き込みに失敗しました。';
+      setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -79,8 +90,6 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-lg bg-stone-900 border-2 border-stone-700 rounded-xl shadow-2xl overflow-hidden text-stone-100">
-        
-        {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 bg-stone-950 border-b border-stone-800">
           <div className="flex items-center gap-2 text-amber-400 font-bold text-lg font-station-sign">
             <PenTool className="w-5 h-5 text-amber-400" />
@@ -94,64 +103,46 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
           </button>
         </div>
 
-        {/* Modal Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          
-          {/* User Status Bar */}
           <div className="bg-stone-800/80 border border-stone-700 rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div>
-                <div className="text-stone-300 font-bold flex items-center gap-1">
-                  <span>ゆっくり駅 伝言板</span>
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                </div>
-                <div className="text-stone-400 text-[11px]">
-                  あなたの掲示中伝言: <span className={isLimitReached ? 'text-rose-400 font-bold' : 'text-amber-300 font-bold'}>{userActiveCount}</span> / {maxUserLimit} 件
-                </div>
+            <div>
+              <div className="text-stone-300 font-bold flex items-center gap-1">
+                <span>投稿者</span>
+                <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              </div>
+              <div className="text-amber-300 font-bold text-sm mt-0.5">{displayName || '（未設定）'}</div>
+              <div className="text-stone-400 text-[11px] mt-1">
+                あなたの掲示中伝言:{' '}
+                <span
+                  className={
+                    isLimitReached ? 'text-rose-400 font-bold' : 'text-amber-300 font-bold'
+                  }
+                >
+                  {userActiveCount}
+                </span>{' '}
+                / {maxUserLimit} 件
               </div>
             </div>
           </div>
 
-          {/* Limit Reached Notice */}
           {isLimitReached && (
             <div className="flex items-start gap-2 bg-rose-950/80 border border-rose-600/50 text-rose-200 p-3 rounded-lg text-xs leading-relaxed">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">投稿上限（1人3件）に達しています。</span>
+                <span className="font-bold">投稿上限に達しています。</span>
                 <p className="mt-0.5 text-rose-300/80">
-                  黒板に書き込むには、伝言板にあるあなたの既存の伝言を「黒板消し」ボタンで1件消去してください。
+                  既存の伝言を「黒板消し」で消去してから書き込んでください。
                 </p>
               </div>
             </div>
           )}
 
-          {/* Error Message */}
           {errorMessage && (
             <div className="bg-rose-900/60 border border-rose-500/60 text-rose-200 text-xs p-3 rounded-lg">
               {errorMessage}
             </div>
           )}
 
-          {/* 投稿名 Input */}
-          <div>
-            <label className="block text-xs font-bold text-stone-300 mb-1">
-              投稿名（あなたの名前）<span className="text-rose-400 ml-1">*</span>
-            </label>
-            <input
-              type="text"
-              value={postName}
-              onChange={(e) => setPostName(e.target.value)}
-              placeholder="例: たけし、サトシ、駅前カフェのマスター"
-              maxLength={20}
-              className="w-full bg-stone-950 border border-stone-700 rounded-lg px-3 py-2 text-stone-100 placeholder-stone-600 text-sm focus:outline-none focus:border-amber-500"
-              required
-            />
-            <span className="text-[10px] text-stone-500 mt-0.5 block">
-              誰からの伝言か伝わるように名前を入力してください
-            </span>
-          </div>
-
-          {/* チョークの色 Chalk Color Selection */}
           <div>
             <label className="block text-xs font-bold text-stone-300 mb-1.5 flex items-center gap-1">
               <Palette className="w-3.5 h-3.5 text-amber-400" />
@@ -176,7 +167,6 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
             </div>
           </div>
 
-          {/* 伝言本文 Content Input */}
           <div>
             <label className="block text-xs font-bold text-stone-300 mb-1">
               伝言本文<span className="text-rose-400 ml-1">*</span>
@@ -196,7 +186,6 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
             </div>
           </div>
 
-          {/* Modal Actions */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-800">
             <button
               type="button"

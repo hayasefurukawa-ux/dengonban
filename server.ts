@@ -253,13 +253,21 @@ app.post("/api/posts", requireAuth, async (req, res) => {
     return;
   }
 
+  const currentProfiles = await loadProfiles();
+  const existingProfile = currentProfiles[userId];
+  const resolvedPostName =
+    (typeof postName === "string" && postName.trim()) ||
+    existingProfile?.postName?.trim() ||
+    authUser.name?.trim() ||
+    "名無し駅員";
+
   const postId = `post-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const newPost: Post = {
     id: postId,
     userId,
     userEmail,
     userAvatar,
-    postName: postName?.trim() || authUser.name || "名無し駅員",
+    postName: resolvedPostName,
     content: cleanContent,
     chalkColor: chalkColor || "white",
     createdAt: formatStationTime(),
@@ -282,14 +290,13 @@ app.post("/api/posts", requireAuth, async (req, res) => {
   }
 
   // Ensure member profile exists or updates postName for this user
-  const currentProfiles = await loadProfiles();
   let updatedProfile: MemberProfile;
-  if (!currentProfiles[userId]) {
+  if (!existingProfile) {
     updatedProfile = {
       userId,
       userEmail,
       userAvatar,
-      postName: postName?.trim() || authUser.name || "名無し",
+      postName: resolvedPostName,
       googleName: authUser.name || "",
       substackUrl: "",
       bio: "",
@@ -299,10 +306,10 @@ app.post("/api/posts", requireAuth, async (req, res) => {
     };
   } else {
     updatedProfile = {
-      ...currentProfiles[userId],
-      postName: postName?.trim() || currentProfiles[userId].postName || "名無し",
-      userAvatar: userAvatar || currentProfiles[userId].userAvatar,
-      googleName: authUser.name || currentProfiles[userId].googleName || "",
+      ...existingProfile,
+      postName: existingProfile.postName?.trim() || resolvedPostName,
+      userAvatar: userAvatar || existingProfile.userAvatar,
+      googleName: authUser.name || existingProfile.googleName || "",
     };
   }
   profiles[userId] = updatedProfile;
