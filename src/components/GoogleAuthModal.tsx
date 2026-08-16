@@ -50,16 +50,29 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         typeof err === 'object' && err && 'code' in err
           ? String((err as { code: string }).code)
           : '';
+      const message =
+        typeof err === 'object' && err && 'message' in err
+          ? String((err as { message: string }).message)
+          : '';
       const host = window.location.hostname;
-      if (code === 'auth/popup-closed-by-user') {
-        setErrorMessage('ログインがキャンセルされました。');
+
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setErrorMessage('ログインがキャンセルされました。もう一度お試しください。');
+      } else if (code === 'auth/popup-blocked') {
+        setErrorMessage('ポップアップがブロックされました。ブラウザでこのサイトのポップアップを許可してください。');
       } else if (code === 'auth/unauthorized-domain') {
         setErrorMessage(
-          `ドメイン未承認です（${host}）。Firebase Console → Authentication → Settings → Authorized domains に「${host}」を追加してください。※順番（12番目など）は関係ありません。`
+          `ドメイン未承認です（${host}）。Firebase の Authorized domains に「${host}」を追加してください。`
         );
+      } else if (code === 'auth/operation-not-allowed') {
+        setErrorMessage(
+          'Googleログインが Firebase で無効です。Authentication → Sign-in method → Google を有効にしてください。'
+        );
+      } else if (code === 'auth/network-request-failed') {
+        setErrorMessage('ネットワークエラーです。接続を確認して再試行してください。');
       } else {
         setErrorMessage(
-          `Googleログインに失敗しました${code ? `（${code}）` : ''}。もう一度お試しください。`
+          `Googleログインに失敗しました。\nエラーコード: ${code || '不明'}\n${message || '詳細なし'}`
         );
       }
     } finally {
@@ -90,7 +103,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           </p>
 
           {errorMessage && (
-            <div className="text-xs text-rose-300 bg-rose-950/50 border border-rose-800 rounded-lg px-3 py-2">
+            <div className="text-xs text-rose-300 bg-rose-950/50 border border-rose-800 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">
               {errorMessage}
             </div>
           )}
