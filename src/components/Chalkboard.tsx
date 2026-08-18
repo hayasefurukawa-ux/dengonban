@@ -199,7 +199,7 @@ export const Chalkboard: React.FC<ChalkboardProps> = ({
                     </div>
 
                     {/* Post Content Body */}
-                    <div className={`font-chalk text-lg sm:text-xl pl-2 py-1 ${getChalkClass(post.chalkColor)}`}>
+                    <div className={`font-chalk text-lg sm:text-xl pl-2 py-1 whitespace-pre-wrap break-words ${getChalkClass(post.chalkColor)}`}>
                       {post.content}
                     </div>
                   </div>

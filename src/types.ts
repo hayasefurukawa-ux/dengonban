@@ -42,6 +42,7 @@ export interface MemberProfile {
   bio: string;
   strengths: string;
   weaknesses: string;
+  genres: string[];
   updatedAt: string;
 }
 

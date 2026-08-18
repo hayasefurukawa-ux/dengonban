@@ -103,6 +103,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             )}
           </div>
 
+          {/* Genre Tags */}
+          {profile.genres && profile.genres.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {profile.genres.map((genre) => (
+                <span
+                  key={genre}
+                  className="text-[11px] font-bold bg-amber-950/80 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-full"
+                >
+                  #{genre}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Bio / 自己紹介 */}
           <div>
             <h3 className="text-xs font-bold text-stone-400 mb-1.5 flex items-center gap-1 font-station-sign">
@@ -151,7 +165,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <div className="text-[10px] text-emerald-200/80 mb-1 font-mono">
                       {post.createdAt} 掲示
                     </div>
-                    <p className="chalk-text-yellow text-sm">{post.content}</p>
+                    <p className="chalk-text-yellow text-sm whitespace-pre-wrap break-words">{post.content}</p>
                   </div>
                 ))}
               </div>

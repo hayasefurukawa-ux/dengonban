@@ -30,6 +30,7 @@
         "bio": { "type": "string", "description": "Self introduction bio" },
         "strengths": { "type": "string", "description": "Member strengths" },
         "weaknesses": { "type": "string", "description": "Member weaknesses" },
+        "genres": { "type": "array", "description": "Up to 2 genre tags" },
         "updatedAt": { "type": "string", "description": "Formatted update date" }
       },
       "required": ["userId", "postName"]

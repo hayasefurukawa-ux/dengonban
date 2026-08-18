@@ -19,6 +19,7 @@ import {
   orderBy,
   limit
 } from "firebase/firestore";
+import { DEFAULT_GENRES, MAX_GENRES_PER_USER, normalizeGenres } from "./src/lib/genres.ts";
 
 interface Post {
   id: string;
@@ -48,6 +49,7 @@ interface MemberProfile {
   bio: string;
   strengths: string;
   weaknesses: string;
+  genres: string[];
   updatedAt: string;
 }
 
@@ -149,6 +151,7 @@ let adminNotice: AdminNotice = {
   updatedBy: "ゆっくり駅伝言板 管理人",
 };
 let posts: Post[] = [];
+let genreTags: string[] = [...DEFAULT_GENRES];
 
 // Firestore Helper Functions
 async function loadPosts(): Promise<Post[]> {
@@ -175,7 +178,12 @@ async function loadProfiles(): Promise<Record<string, MemberProfile>> {
     const fetchedProfiles: Record<string, MemberProfile> = {};
     snap.forEach((d) => {
       const p = d.data() as MemberProfile;
-      if (p.userId) fetchedProfiles[p.userId] = p;
+      if (p.userId) {
+        fetchedProfiles[p.userId] = {
+          ...p,
+          genres: Array.isArray(p.genres) ? p.genres : [],
+        };
+      }
     });
     profiles = fetchedProfiles;
     return fetchedProfiles;
@@ -196,6 +204,26 @@ async function loadAdminNotice(): Promise<AdminNotice> {
   } catch (e) {
     console.error("Failed to load admin notice from Firestore:", e);
     return adminNotice;
+  }
+}
+
+async function loadGenreTags(): Promise<string[]> {
+  if (!db) return genreTags;
+  try {
+    const snap = await getDoc(doc(db, "settings", "genres"));
+    if (snap.exists()) {
+      const tags = (snap.data() as { tags?: unknown }).tags;
+      if (Array.isArray(tags) && tags.length > 0) {
+        genreTags = tags.map((t) => String(t).trim()).filter(Boolean);
+        return genreTags;
+      }
+    }
+    await setDoc(doc(db, "settings", "genres"), { tags: [...DEFAULT_GENRES] });
+    genreTags = [...DEFAULT_GENRES];
+    return genreTags;
+  } catch (e) {
+    console.error("Failed to load genre tags from Firestore:", e);
+    return genreTags;
   }
 }
 
@@ -302,6 +330,7 @@ app.post("/api/posts", requireAuth, async (req, res) => {
       bio: "",
       strengths: "",
       weaknesses: "",
+      genres: [],
       updatedAt: new Date().toLocaleDateString("ja-JP"),
     };
   } else {
@@ -310,6 +339,7 @@ app.post("/api/posts", requireAuth, async (req, res) => {
       postName: existingProfile.postName?.trim() || resolvedPostName,
       userAvatar: userAvatar || existingProfile.userAvatar,
       googleName: authUser.name || existingProfile.googleName || "",
+      genres: Array.isArray(existingProfile.genres) ? existingProfile.genres : [],
     };
   }
   profiles[userId] = updatedProfile;
@@ -423,7 +453,7 @@ app.get("/api/profiles/:userId", async (req, res) => {
 app.put("/api/profiles/:userId", requireAuth, async (req, res) => {
   const authUser = (req as express.Request & { authUser: AuthUser }).authUser;
   const { userId } = req.params;
-  const { userAvatar, postName, googleName, substackUrl, bio, strengths, weaknesses } = req.body;
+  const { userAvatar, postName, googleName, substackUrl, bio, strengths, weaknesses, genres } = req.body;
 
   if (!userId) {
     res.status(400).json({ error: "ユーザーIDが必要です。" });
@@ -432,6 +462,13 @@ app.put("/api/profiles/:userId", requireAuth, async (req, res) => {
 
   if (userId !== authUser.uid) {
     res.status(403).json({ error: "自分のプロフィールのみ編集できます。" });
+    return;
+  }
+
+  const currentTags = await loadGenreTags();
+  const sanitizedGenres = normalizeGenres(genres, currentTags);
+  if (Array.isArray(genres) && genres.length > MAX_GENRES_PER_USER) {
+    res.status(400).json({ error: `ジャンルは最大${MAX_GENRES_PER_USER}つまで選択できます。` });
     return;
   }
 
@@ -445,9 +482,10 @@ app.put("/api/profiles/:userId", requireAuth, async (req, res) => {
     postName: postName?.trim() || existing.postName || authUser.name || "名無し",
     googleName: googleName || authUser.name || existing.googleName || "",
     substackUrl: substackUrl?.trim() || existing.substackUrl || "",
-    bio: bio?.trim() || "",
-    strengths: strengths?.trim() || "",
-    weaknesses: weaknesses?.trim() || "",
+    bio: typeof bio === "string" ? bio.trim() : existing.bio || "",
+    strengths: typeof strengths === "string" ? strengths.trim() : existing.strengths || "",
+    weaknesses: typeof weaknesses === "string" ? weaknesses.trim() : existing.weaknesses || "",
+    genres: sanitizedGenres,
     updatedAt: new Date().toLocaleDateString("ja-JP"),
   };
 
@@ -465,6 +503,51 @@ app.put("/api/profiles/:userId", requireAuth, async (req, res) => {
     success: true,
     profile: updatedProfile,
   });
+});
+
+// 8. Get genre tags
+app.get("/api/genres", async (_req, res) => {
+  const tags = await loadGenreTags();
+  res.json({ tags, maxPerUser: MAX_GENRES_PER_USER });
+});
+
+// 9. Add genre tag (要 Google ログイン + 駅長モード)
+app.post("/api/genres", requireAuth, async (req, res) => {
+  const { tag, isAdmin } = req.body || {};
+  if (!isAdmin) {
+    res.status(403).json({ error: "ジャンルタグの追加は駅長（管理人）のみ行えます。" });
+    return;
+  }
+
+  const cleanTag = typeof tag === "string" ? tag.trim() : "";
+  if (!cleanTag) {
+    res.status(400).json({ error: "ジャンル名を入力してください。" });
+    return;
+  }
+  if (cleanTag.length > 20) {
+    res.status(400).json({ error: "ジャンル名は20文字以内で入力してください。" });
+    return;
+  }
+
+  const currentTags = await loadGenreTags();
+  if (currentTags.includes(cleanTag)) {
+    res.status(400).json({ error: "同じジャンルはすでに登録されています。" });
+    return;
+  }
+
+  const nextTags = [...currentTags, cleanTag];
+  genreTags = nextTags;
+  if (db) {
+    try {
+      await setDoc(doc(db, "settings", "genres"), { tags: nextTags });
+    } catch (e) {
+      console.error("Failed to save genre tags to Firestore:", e);
+      res.status(500).json({ error: "ジャンルの保存に失敗しました。" });
+      return;
+    }
+  }
+
+  res.json({ success: true, tags: nextTags });
 });
 
 // === VITE MIDDLEWARE SETUP === //

@@ -177,7 +177,7 @@ export const PostFormModal: React.FC<PostFormModalProps> = ({
               placeholder="例: ケンジへ 先に行くね。18時に喫茶店で待ってる！"
               rows={3}
               maxLength={100}
-              className="w-full bg-chalkboard chalkboard-bg font-chalk text-lg p-3 rounded-lg text-amber-200 border border-stone-700 focus:border-amber-400 focus:outline-none placeholder-stone-600 resize-none"
+              className="w-full bg-chalkboard chalkboard-bg font-chalk text-lg p-3 rounded-lg text-amber-200 border border-stone-700 focus:border-amber-400 focus:outline-none placeholder-stone-600 resize-none whitespace-pre-wrap"
               required
             />
             <div className="flex justify-between items-center text-[11px] text-stone-500 mt-1">

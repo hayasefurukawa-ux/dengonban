@@ -17,6 +17,7 @@ import { EditProfileModal } from './components/EditProfileModal';
 import { Info, HelpCircle } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { authHeaders } from './lib/auth';
+import { DEFAULT_GENRES } from './lib/genres';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 
 const LOCAL_STORAGE_STATION_KEY = 'station_board_name_v1';
@@ -32,6 +33,7 @@ export default function App() {
   const [stationName, setStationName] = useState<string>('昭和中央駅');
 
   const [memberProfiles, setMemberProfiles] = useState<MemberProfile[]>([]);
+  const [availableGenres, setAvailableGenres] = useState<string[]>([...DEFAULT_GENRES]);
   const [selectedProfile, setSelectedProfile] = useState<MemberProfile | null>(null);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -99,6 +101,20 @@ export default function App() {
     }
   }, []);
 
+  const fetchGenres = useCallback(async () => {
+    try {
+      const res = await fetch('/api/genres');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tags) && data.tags.length > 0) {
+          setAvailableGenres(data.tags);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch genres:', e);
+    }
+  }, []);
+
   useEffect(() => {
     try {
       const savedName = localStorage.getItem(LOCAL_STORAGE_STATION_KEY);
@@ -127,6 +143,7 @@ export default function App() {
   useEffect(() => {
     fetchBoardData();
     fetchProfiles();
+    fetchGenres();
 
     let unsubscribePosts: (() => void) | null = null;
     let unsubscribeProfiles: (() => void) | null = null;
@@ -153,7 +170,11 @@ export default function App() {
         (snapshot) => {
           const liveProfiles: MemberProfile[] = [];
           snapshot.forEach((d) => {
-            liveProfiles.push(d.data() as MemberProfile);
+            const p = d.data() as MemberProfile;
+            liveProfiles.push({
+              ...p,
+              genres: Array.isArray(p.genres) ? p.genres : [],
+            });
           });
           setMemberProfiles(liveProfiles);
         },
@@ -168,6 +189,7 @@ export default function App() {
     const interval = setInterval(() => {
       fetchBoardData();
       fetchProfiles();
+      fetchGenres();
     }, 10000);
 
     return () => {
@@ -175,7 +197,7 @@ export default function App() {
       if (unsubscribeProfiles) unsubscribeProfiles();
       clearInterval(interval);
     };
-  }, [fetchBoardData, fetchProfiles]);
+  }, [fetchBoardData, fetchProfiles, fetchGenres]);
 
   const requireLogin = () => {
     setIsAuthModalOpen(true);
@@ -209,6 +231,7 @@ export default function App() {
           bio: 'まだ自己紹介が登録されていません。',
           strengths: '',
           weaknesses: '',
+          genres: [],
           updatedAt: '未登録',
         });
         setIsProfileModalOpen(true);
@@ -222,6 +245,7 @@ export default function App() {
     bio: string;
     strengths: string;
     weaknesses: string;
+    genres: string[];
   }) => {
     if (!currentUser) return;
 
@@ -236,6 +260,7 @@ export default function App() {
         bio: updatedData.bio,
         strengths: updatedData.strengths,
         weaknesses: updatedData.weaknesses,
+        genres: updatedData.genres,
       }),
     });
 
@@ -259,6 +284,31 @@ export default function App() {
 
     await fetchProfiles();
     await fetchBoardData();
+  };
+
+  const handleAddGenre = async (tag: string) => {
+    if (!currentUser) {
+      requireLogin();
+      throw new Error('Googleログインが必要です。');
+    }
+    if (!isAdmin) {
+      throw new Error('ジャンルタグの追加は駅長（管理人）のみ行えます。');
+    }
+
+    const res = await fetch('/api/genres', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ tag, isAdmin: true }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.error || 'タグの追加に失敗しました。');
+    }
+    if (Array.isArray(result.tags)) {
+      setAvailableGenres(result.tags);
+    } else {
+      await fetchGenres();
+    }
   };
 
   const handleCreatePost = async (data: {
@@ -419,6 +469,8 @@ export default function App() {
                   isAdmin: false,
                 }
               }
+              availableGenres={availableGenres}
+              isAdmin={isAdmin}
               onSelectProfile={(profile) => {
                 setSelectedProfile(profile);
                 setIsProfileModalOpen(true);
@@ -431,6 +483,7 @@ export default function App() {
                 setIsProfileEditModalOpen(true);
               }}
               onBackToMainBoard={() => setActiveTab('board')}
+              onAddGenre={handleAddGenre}
             />
           </div>
         )}
@@ -469,7 +522,7 @@ export default function App() {
                 <span className="text-amber-300 font-bold">2件</span>までです。
               </li>
               <li>
-                <strong className="text-white">自己紹介ボード:</strong> 上部タブから参加者プロフィールを見られます。
+                <strong className="text-white">自己紹介ボード:</strong> 上部タブから参加者プロフィールを見られます。ジャンルは1人最大2つです。
               </li>
             </ul>
           </div>
@@ -521,6 +574,7 @@ export default function App() {
           onClose={() => setIsProfileEditModalOpen(false)}
           currentUserProfile={currentUser}
           currentMemberProfile={memberProfiles.find((p) => p.userId === currentUser.id) || null}
+          availableGenres={availableGenres}
           onSave={handleSaveMemberProfile}
         />
       )}

@@ -1,38 +1,67 @@
 import React, { useState } from 'react';
 import { MemberProfile, UserProfile } from '../types';
-import { ExternalLink, Sparkles, HelpCircle, Edit3, Search, Users, ArrowRight } from 'lucide-react';
+import { ExternalLink, Sparkles, HelpCircle, Edit3, Search, Users, ArrowRight, Tag, Plus } from 'lucide-react';
 
 interface ProfileBoardProps {
   profiles: MemberProfile[];
   currentUserProfile: UserProfile;
+  availableGenres: string[];
+  isAdmin: boolean;
   onSelectProfile: (profile: MemberProfile) => void;
   onOpenEditProfile: () => void;
   onBackToMainBoard: () => void;
+  onAddGenre?: (tag: string) => Promise<void>;
 }
 
 export const ProfileBoard: React.FC<ProfileBoardProps> = ({
   profiles,
   currentUserProfile,
+  availableGenres,
+  isAdmin,
   onSelectProfile,
   onOpenEditProfile,
   onBackToMainBoard,
+  onAddGenre,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedGenre, setSelectedGenre] = useState<string>('all');
+  const [newGenre, setNewGenre] = useState('');
+  const [isAddingGenre, setIsAddingGenre] = useState(false);
+  const [genreError, setGenreError] = useState('');
 
   const filteredProfiles = profiles.filter((p) => {
     const term = searchTerm.toLowerCase();
-    return (
+    const genres = p.genres || [];
+    const matchesGenre = selectedGenre === 'all' || genres.includes(selectedGenre);
+    const matchesSearch =
+      !term ||
       p.postName.toLowerCase().includes(term) ||
-      p.bio.toLowerCase().includes(term) ||
-      p.strengths.toLowerCase().includes(term) ||
-      p.weaknesses.toLowerCase().includes(term) ||
-      p.substackUrl.toLowerCase().includes(term)
-    );
+      (p.bio || '').toLowerCase().includes(term) ||
+      (p.strengths || '').toLowerCase().includes(term) ||
+      (p.weaknesses || '').toLowerCase().includes(term) ||
+      (p.substackUrl || '').toLowerCase().includes(term) ||
+      genres.some((g) => g.toLowerCase().includes(term));
+    return matchesGenre && matchesSearch;
   });
+
+  const handleAddGenre = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const tag = newGenre.trim();
+    if (!tag || !onAddGenre) return;
+    try {
+      setIsAddingGenre(true);
+      setGenreError('');
+      await onAddGenre(tag);
+      setNewGenre('');
+    } catch (err: unknown) {
+      setGenreError(err instanceof Error ? err.message : 'タグの追加に失敗しました。');
+    } finally {
+      setIsAddingGenre(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
       <div className="bg-gradient-to-br from-stone-900 via-amber-950/60 to-stone-900 border-2 border-stone-700 rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -43,7 +72,7 @@ export const ProfileBoard: React.FC<ProfileBoardProps> = ({
               </h2>
             </div>
             <p className="text-xs text-stone-300 leading-relaxed max-w-2xl">
-              伝言板に集うメンバーのプロフィール一覧です。Substack（サブスタック）のトップページ確認や、お互いの「強み（助けられること）」「弱み（助けて欲しいこと）」を確認できます。
+              伝言板に集うメンバーのプロフィール一覧です。ジャンルタグで絞り込み、Substackや強み・弱みも確認できます。
             </p>
           </div>
 
@@ -65,20 +94,79 @@ export const ProfileBoard: React.FC<ProfileBoardProps> = ({
           </div>
         </div>
 
-        {/* Search Bar */}
         <div className="mt-5 relative">
           <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="お名前、強み、弱み、キーワードでメンバーを検索..."
+            placeholder="お名前、ジャンル、強み、弱みでメンバーを検索..."
             className="w-full bg-stone-950/80 border border-stone-700 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs text-stone-200 placeholder-stone-500 outline-none transition-colors"
           />
         </div>
+
+        <div className="mt-4">
+          <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold text-amber-300 font-station-sign">
+            <Tag className="w-3.5 h-3.5" />
+            ジャンルで絞り込む
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedGenre('all')}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                selectedGenre === 'all'
+                  ? 'bg-amber-400 text-stone-950 border-amber-300'
+                  : 'bg-stone-950 text-stone-300 border-stone-700 hover:border-amber-500'
+              }`}
+            >
+              すべて
+            </button>
+            {availableGenres.map((tag) => (
+              <button
+                type="button"
+                key={tag}
+                onClick={() => setSelectedGenre(tag)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                  selectedGenre === tag
+                    ? 'bg-amber-400 text-stone-950 border-amber-300'
+                    : 'bg-stone-950 text-stone-300 border-stone-700 hover:border-amber-500'
+                }`}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isAdmin && onAddGenre && (
+          <form onSubmit={handleAddGenre} className="mt-4 bg-stone-950/70 border border-amber-500/30 rounded-xl p-3">
+            <div className="text-[11px] font-bold text-amber-300 mb-2 font-station-sign">
+              管理人：ジャンルタグを追加
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newGenre}
+                onChange={(e) => setNewGenre(e.target.value)}
+                placeholder="新しいジャンル名"
+                maxLength={20}
+                className="flex-1 bg-stone-900 border border-stone-700 focus:border-amber-400 rounded-lg px-3 py-2 text-xs text-stone-100 outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isAddingGenre || !newGenre.trim()}
+                className="flex items-center gap-1 px-3 py-2 bg-amber-400 hover:bg-amber-300 disabled:bg-stone-700 text-stone-950 font-bold text-xs rounded-lg"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                追加
+              </button>
+            </div>
+            {genreError && <p className="text-[11px] text-rose-300 mt-1.5">{genreError}</p>}
+          </form>
+        )}
       </div>
 
-      {/* Profiles Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {filteredProfiles.length > 0 ? (
           filteredProfiles.map((profile) => {
@@ -91,7 +179,6 @@ export const ProfileBoard: React.FC<ProfileBoardProps> = ({
                 className="group relative bg-stone-900 hover:bg-stone-850 border-2 border-stone-800 hover:border-amber-500/60 rounded-2xl p-5 shadow-md hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
-                  {/* Top Info */}
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-3">
                       <div>
@@ -137,38 +224,46 @@ export const ProfileBoard: React.FC<ProfileBoardProps> = ({
                     )}
                   </div>
 
-                  {/* Bio Preview */}
-                  <p className="text-xs text-stone-300 line-clamp-2 mb-4 leading-relaxed bg-stone-950/60 p-2.5 rounded-lg border border-stone-800/80">
+                  {(profile.genres || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {(profile.genres || []).map((genre) => (
+                        <span
+                          key={genre}
+                          className="text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full"
+                        >
+                          #{genre}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-stone-300 line-clamp-3 mb-4 leading-relaxed bg-stone-950/60 p-2.5 rounded-lg border border-stone-800/80 whitespace-pre-wrap break-words">
                     {profile.bio || '自己紹介はまだ未記入です。'}
                   </p>
 
-                  {/* Strengths & Weaknesses Chips */}
                   <div className="space-y-2">
-                    {/* Strengths */}
                     <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-2.5">
                       <div className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 mb-1 font-station-sign">
                         <Sparkles className="w-3 h-3 text-emerald-400" />
                         <span>強み (助けられること)</span>
                       </div>
-                      <p className="text-xs text-emerald-100 line-clamp-1 font-medium">
+                      <p className="text-xs text-emerald-100 line-clamp-2 font-medium whitespace-pre-wrap break-words">
                         {profile.strengths || '未登録'}
                       </p>
                     </div>
 
-                    {/* Weaknesses */}
                     <div className="bg-rose-950/30 border border-rose-500/30 rounded-lg p-2.5">
                       <div className="text-[10px] font-bold text-rose-400 flex items-center gap-1 mb-1 font-station-sign">
                         <HelpCircle className="w-3 h-3 text-rose-400" />
                         <span>弱み (助けて欲しいこと)</span>
                       </div>
-                      <p className="text-xs text-rose-100 line-clamp-1 font-medium">
+                      <p className="text-xs text-rose-100 line-clamp-2 font-medium whitespace-pre-wrap break-words">
                         {profile.weaknesses || '未登録'}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Footer Action */}
                 <div className="mt-4 pt-3 border-t border-stone-800/80 flex items-center justify-between text-[11px] text-stone-400">
                   <span>クリックして詳細プロフィールを表示</span>
                   <span className="text-amber-400 font-bold group-hover:translate-x-1 transition-transform inline-flex items-center gap-0.5">
@@ -185,7 +280,7 @@ export const ProfileBoard: React.FC<ProfileBoardProps> = ({
               該当するメンバーが見つかりませんでした。
             </p>
             <p className="text-xs text-stone-500 mt-1">
-              検索ワードを変更するか、新しい自己紹介を投稿してみてください。
+              検索ワードやジャンルを変更するか、新しい自己紹介を投稿してみてください。
             </p>
           </div>
         )}
