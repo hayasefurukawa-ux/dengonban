@@ -36,21 +36,22 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 開いたときだけ初期化する。編集中の Firestore 再取得で入力が消えないようにする。
   useEffect(() => {
-    if (isOpen) {
-      setPostName(currentMemberProfile?.postName || currentUserProfile.postName || '');
-      setSubstackUrl(currentMemberProfile?.substackUrl || currentUserProfile.substackUrl || '');
-      setBio(currentMemberProfile?.bio || currentUserProfile.bio || '');
-      setStrengths(currentMemberProfile?.strengths || currentUserProfile.strengths || '');
-      setWeaknesses(currentMemberProfile?.weaknesses || currentUserProfile.weaknesses || '');
-      setGenres(
-        (currentMemberProfile?.genres || [])
-          .filter((g) => availableGenres.includes(g))
-          .slice(0, MAX_GENRES_PER_USER)
-      );
-      setErrorMsg(null);
-    }
-  }, [isOpen, currentMemberProfile, currentUserProfile, availableGenres]);
+    if (!isOpen) return;
+    setPostName(currentMemberProfile?.postName || currentUserProfile.postName || '');
+    setSubstackUrl(currentMemberProfile?.substackUrl || currentUserProfile.substackUrl || '');
+    setBio(currentMemberProfile?.bio || currentUserProfile.bio || '');
+    setStrengths(currentMemberProfile?.strengths || currentUserProfile.strengths || '');
+    setWeaknesses(currentMemberProfile?.weaknesses || currentUserProfile.weaknesses || '');
+    setGenres(
+      (currentMemberProfile?.genres || [])
+        .filter((g) => availableGenres.includes(g))
+        .slice(0, MAX_GENRES_PER_USER)
+    );
+    setErrorMsg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- モーダルを開いた瞬間の値だけ使う
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
